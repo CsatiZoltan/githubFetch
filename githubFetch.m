@@ -4,12 +4,14 @@ function filestr = githubFetch(user, repository, downloadType, name)
 %   Inputs:
 %       user: name of the user or the organization
 %       repository: name of the repository
-%       downloadType: 'branch' or 'release'
+%       downloadType: 'branch', 'release' or 'version'
 %       name (optional):
 %           if downloadType is 'branch': branch name (default: 'master')
-%           if downloadType is 'release': release version (default: 'latest')
+%           if downloadType is 'release' or 'version': release version (default: 'latest')
 %   Output:
-%       filestr: path to the downloaded file
+%       filestr:
+%           if downloadType is 'branch' or 'release': path to the downloaded file
+%           if downloadType is 'version': the fetched version name (no file download)
 %
 %   The downloaded file type is .zip.
 %
@@ -20,9 +22,11 @@ function filestr = githubFetch(user, repository, downloadType, name)
 %       3) githubFetch('matlab2tikz', 'matlab2tikz', 'release', '1.1.0')
 %       4) githubFetch('matlab2tikz', 'matlab2tikz', 'release')
 %       % same as githubFetch('matlab2tikz', 'matlab2tikz', 'release', 'latest')
+%       5) githubFetch('matlab2tikz', 'matlab2tikz', 'version')
+%       % fetches the latest version without downloading it
 
 %   Zoltan Csati
-%   04/02/2018
+%   11/08/2021
 
 
 
@@ -32,8 +36,9 @@ website = 'https://github.com';
 % Check for download type
 branchRequested = strcmpi(downloadType, 'branch');
 releaseRequested = strcmpi(downloadType, 'release');
-assert(branchRequested | releaseRequested, ...
-    'Type must be either ''branch'' or ''release''.');
+versionRequested = strcmpi(downloadType, 'version');
+assert(branchRequested | releaseRequested | versionRequested, ...
+    'Type must be either ''branch'', ''release'' or ''version''.');
 
 % Check if the user exists
 try
@@ -57,11 +62,11 @@ end
 if nargin < 4 % no branch or release version provided
     if branchRequested
         name = 'master';
-    elseif releaseRequested
+    elseif releaseRequested || versionRequested
         name = 'latest';
     end
 end
-if releaseRequested
+if releaseRequested || versionRequested
     if strcmpi(name, 'latest') % extract the latest version number
         s = urlread(fullfile(website, user, repository, 'releases', 'latest'));
         % Search based on https://stackoverflow.com/a/23756210/4892892
@@ -72,26 +77,30 @@ if releaseRequested
         name = releaseLine(startIndex:endIndex);
         assert(~isempty(name), 'No release found. Try downloading a branch.');
     end
-    versionName = ['v', name];
+    versionName = name;
 elseif branchRequested
     versionName = name;
 end
 
-% Download the requested branch or release
-githubLink = fullfile(website, user, repository, 'archive', [versionName, '.zip']);
-downloadName = [repository, '-', name, '.zip'];
-try
-    fprintf('Download started ...\n');
-    filestr = urlwrite(githubLink, downloadName);
-    fprintf('Repository %s successfully downloaded.\n', repository);
-catch ME
-    if strcmp(ME.identifier, 'MATLAB:urlwrite:FileNotFound')
-        if branchRequested
-            error('Branch ''%s'' does not exist.', name);
-        elseif releaseRequested
-            error('Release version %s does not exist.', name);
+% Download the requested branch or release (unless only the version number was requested)
+if versionRequested
+    filestr = versionName;
+else
+    githubLink = fullfile(website, user, repository, 'archive/refs/tags', [versionName, '.zip']);
+    downloadName = [repository, '-', name, '.zip'];
+    try
+        fprintf('Download started ...\n');
+        filestr = urlwrite(githubLink, downloadName);
+        fprintf('Repository %s successfully downloaded.\n', repository);
+    catch ME
+        if strcmp(ME.identifier, 'MATLAB:urlwrite:FileNotFound')
+            if branchRequested
+                error('Branch ''%s'' does not exist.', name);
+            elseif releaseRequested
+                error('Release version %s does not exist.', name);
+            end
+        else
+            rethrow(ME);
         end
-    else
-        rethrow(ME);
     end
 end
